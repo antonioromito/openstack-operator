@@ -12,13 +12,13 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
 	pod "github.com/openstack-k8s-operators/lib-common/modules/common/pod"
-	pvc "github.com/openstack-k8s-operators/lib-common/modules/common/pvc"
 	mariadbv1 "github.com/openstack-k8s-operators/mariadb-operator/api/v1beta1"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -210,7 +210,7 @@ func reconcileGalera(
 		return galeraReady, nil
 	}
 
-	PrintGaleraPodToPVCMap(ctx, helper.GetClient(), helper.GetLogger(), galera.Namespace, galera.Name)
+	PrintGaleraPodToPVCMap(ctx, helper.GetClient(), helper.GetLogger(), galera.Namespace, galera.Name, helper)
 
 	return galeraCreating, nil
 }
@@ -229,24 +229,31 @@ func GaleraImageMatch(ctx context.Context, controlPlane *corev1beta1.OpenStackCo
 }
 
 // PrintGaleraPodToPVCMap logs the association between Galera Pods and their PVCs
-func PrintGaleraPodToPVCMap(ctx context.Context, cli client.Client, log logr.Logger, namespace string, galeraName string) {
+func PrintGaleraPodToPVCMap(ctx context.Context, cli client.Client, log logr.Logger, namespace string, galeraName string, helper *helper.Helper) {
 	labels := map[string]string{
 		"app":         "galera",
 		"galera/name": galeraName,
 	}
 
-	podList, err := pod.GetPodListWithLabel(ctx, cli, labels, namespace)
+	// Get Pod list using helper (non-cached client)
+	podList, err := pod.GetPodListWithLabel(ctx, helper, namespace, labels)
 	if err != nil {
 		log.Error(err, "Failed to get Galera Pods")
 		return
 	}
 
-	pvcList, err := pvc.GetPVCs(ctx, cli, namespace, labels)
+	// Get PVC list directly using controller-runtime client
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	err = cli.List(ctx, pvcList,
+		client.InNamespace(namespace),
+		client.MatchingLabels(labels),
+	)
 	if err != nil {
-		log.Error(err, "Failed to get Galera PVCs")
+		log.Error(err, "Failed to list Galera PVCs")
 		return
 	}
 
+	// Index PVCs by name
 	pvcMap := make(map[string]corev1.PersistentVolumeClaim)
 	for _, pvc := range pvcList.Items {
 		pvcMap[pvc.Name] = pvc
@@ -264,4 +271,3 @@ func PrintGaleraPodToPVCMap(ctx context.Context, cli client.Client, log logr.Log
 		}
 	}
 }
-
