@@ -254,7 +254,6 @@ func PrintGaleraPodToPVCMap(ctx context.Context, cli client.Client, log logr.Log
 	}
 
 	// Index PVCs by name
-	//
 	pvcMap := make(map[string]corev1.PersistentVolumeClaim)
 	for _, pvc := range pvcList.Items {
 		pvcMap[pvc.Name] = pvc
